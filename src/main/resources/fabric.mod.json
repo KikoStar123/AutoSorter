@@ -1,11 +1,11 @@
 {
 	"schemaVersion": 1,
-	"id": "modid",
+	"id": "autosorter",
 	"version": "${version}",
-	"name": "Example mod",
+	"name": "AutoSorter",
 	"description": "This is an example description! Tell everyone what your mod is about!",
 	"authors": [
-		"Me!"
+		"KikoStar123"
 	],
 	"contact": {
 		"homepage": "https://fabricmc.net/",
