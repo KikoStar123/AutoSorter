@@ -1,22 +1,17 @@
 package com.example.itemsorting.registry;
 
-import com.example.itemsorting.ItemSortingMod;
-import com.example.itemsorting.item.TagEditorItem;
-import net.fabricmc.fabric.api.itemgroup.v1.FabricItemGroup;
+import net.minecraft.item.BlockItem;
 import net.minecraft.item.Item;
-import net.minecraft.item.ItemGroups;
-import net.minecraft.registry.Registries;
-import net.minecraft.registry.Registry;
 import net.minecraft.util.Identifier;
+import net.minecraft.registry.Registry;
+import net.minecraft.registry.Registries;
 
 public class ModItems {
-
-    public static final Item TAG_EDITOR = new TagEditorItem();
+    // 初始化方块物品
+    public static final Item SORTER_BLOCK_ITEM = new BlockItem(ModBlocks.SORTER_BLOCK, new Item.Settings());
 
     public static void registerItems() {
-        Registry.register(Registries.ITEM, new Identifier(ItemSortingMod.MOD_ID, "tag_editor"), TAG_EDITOR);
-
-        // 将标签编辑器添加到物品组中
-        ItemGroups.getGroup(ItemGroups.TOOLS).getEntries().add(TAG_EDITOR);
+        // 注册方块物品到 Registries.ITEM
+        Registry.register(Registries.ITEM, new Identifier("autosorter", "sorter_block"), SORTER_BLOCK_ITEM);
     }
 }

@@ -17,9 +17,6 @@
 	"entrypoints": {
 		"main": [
 			"com.example.itemsorting.ItemSortingMod"
-		],
-		"client": [
-			"com.example.itemsorting.client.ItemSortingClient"
 		]
 	},
 	"mixins": [

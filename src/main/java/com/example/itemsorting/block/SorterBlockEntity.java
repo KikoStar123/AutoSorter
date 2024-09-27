@@ -1,81 +1,53 @@
 package com.example.itemsorting.block;
 
-import com.example.itemsorting.item.TagItem;
 import com.example.itemsorting.registry.ModBlockEntities;
+import com.example.itemsorting.util.ItemComparison; // 引用新的 ItemComparison 类
 import net.minecraft.block.BlockState;
 import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.inventory.Inventory;
+import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
-import net.minecraft.nbt.NbtCompound;
-import net.minecraft.util.math.*;
+import net.minecraft.registry.Registries;
+import net.minecraft.registry.tag.TagKey;
+import net.minecraft.util.Identifier;
+import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.World;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
 
-/**
- * 分类方块实体类，实现了分类方块的核心功能。
- * 它会在指定范围内扫描所有容器，根据物品的标签将其移动到对应的容器中。
- */
 public class SorterBlockEntity extends BlockEntity {
 
     private static final int SCAN_INTERVAL = 100; // 每 5 秒执行一次扫描
-    private static final int SCAN_RANGE = 10; // 扫描范围（可根据需要调整）
+    private static final int SCAN_RANGE = 10; // 扫描范围
+
+    // 存储物品类型与其对应的容器位置
+    private final Map<TagKey<Item>, BlockPos> categoryContainerMap = new HashMap<>();
 
     public SorterBlockEntity(BlockPos pos, BlockState state) {
         super(ModBlockEntities.SORTER_BLOCK_ENTITY, pos, state);
     }
 
-    /**
-     * 方块实体的 tick 方法，由方块类的 getTicker 方法注册。
-     * 这是一个静态方法，符合 BlockEntityTicker 接口的要求。
-     * @param world 当前世界
-     * @param pos 方块位置
-     * @param state 方块状态
-     * @param blockEntity 当前方块实体实例
-     */
     public static void tick(World world, BlockPos pos, BlockState state, SorterBlockEntity blockEntity) {
         if (!world.isClient && world.getTime() % SCAN_INTERVAL == 0) {
             blockEntity.scanAndSort();
         }
     }
 
-    /**
-     * 扫描并分类物品的方法。
-     */
     private void scanAndSort() {
         World world = this.getWorld();
         if (world == null) return;
 
-        // 获取范围内的所有容器
         List<Inventory> inventories = getInventoriesInRange(world);
 
-        // 遍历容器，分类物品
+        // 自动为容器分配分类
+        assignCategoryToContainers(inventories);
+
+        // 遍历所有容器，分类物品
         for (Inventory inventory : inventories) {
-            for (int slot = 0; slot < inventory.size(); slot++) {
-                ItemStack stack = inventory.getStack(slot);
-                if (!stack.isEmpty()) {
-                    String itemTag = getItemTag(stack);
-                    if (itemTag != null && !itemTag.isEmpty()) {
-                        // 找到目标容器
-                        Inventory targetInventory = findTargetInventory(itemTag, inventories, inventory);
-                        if (targetInventory != null && targetInventory != inventory) {
-                            // 尝试移动物品
-                            if (moveItemStack(stack.copy(), targetInventory)) {
-                                inventory.setStack(slot, ItemStack.EMPTY);
-                            }
-                        }
-                    }
-                }
-            }
+            sortItemsInInventory(inventory, inventories);
         }
     }
 
-    /**
-     * 获取指定范围内的所有容器。
-     * @param world 当前世界
-     * @return 包含所有容器的列表
-     */
     private List<Inventory> getInventoriesInRange(World world) {
         List<Inventory> inventories = new ArrayList<>();
         BlockPos.streamOutwards(getPos(), SCAN_RANGE, SCAN_RANGE, SCAN_RANGE).forEach(pos -> {
@@ -87,59 +59,94 @@ public class SorterBlockEntity extends BlockEntity {
         return inventories;
     }
 
-    /**
-     * 从物品堆中获取自定义的物品标签。
-     * @param stack 物品堆
-     * @return 物品的标签，如果没有则返回空字符串
-     */
-    private String getItemTag(ItemStack stack) {
-        NbtCompound nbt = stack.getTag();
-        if (nbt != null && nbt.contains("ItemTag")) {
-            return nbt.getString("ItemTag");
+    private void assignCategoryToContainers(List<Inventory> inventories) {
+        for (Inventory inventory : inventories) {
+            BlockPos containerPos = ((BlockEntity) inventory).getPos();
+
+            // 跳过已经分配分类的容器
+            if (categoryContainerMap.containsValue(containerPos)) continue;
+
+            // 获取容器内的第一个非空物品
+            ItemStack firstItem = getFirstNonEmptyItem(inventory);
+            if (!firstItem.isEmpty()) {
+                TagKey<Item> categoryTag = determineTagCategory(firstItem);
+
+                // 如果该类型的物品还没有对应的容器，则将当前容器分配给它
+                if (!categoryContainerMap.containsKey(categoryTag)) {
+                    categoryContainerMap.put(categoryTag, containerPos);
+                }
+            }
         }
-        return "";
     }
 
+    private ItemStack getFirstNonEmptyItem(Inventory inventory) {
+        for (int i = 0; i < inventory.size(); i++) {
+            ItemStack stack = inventory.getStack(i);
+            if (!stack.isEmpty()) {
+                return stack;
+            }
+        }
+        return ItemStack.EMPTY;
+    }
 
-    /**
-     * 查找具有指定标签的目标容器。
-     * @param tag 目标标签
-     * @param inventories 容器列表
-     * @param sourceInventory 源容器，避免自我循环
-     * @return 目标容器，如果未找到则返回 null
-     */
-    private Inventory findTargetInventory(String tag, List<Inventory> inventories, Inventory sourceInventory) {
+    // 使用标签来判断物品分类
+    private TagKey<Item> determineTagCategory(ItemStack stack) {
+        // 检查物品是否属于石头类标签
+        if (ItemComparison.isStoneItem(stack)) {
+            return ItemComparison.STONE_TAG;
+        }
+
+        // 如果不是石头类物品，可以返回其他分类标签或 null
+        return null;
+    }
+
+    private void sortItemsInInventory(Inventory inventory, List<Inventory> inventories) {
+        for (int slot = 0; slot < inventory.size(); slot++) {
+            ItemStack stack = inventory.getStack(slot);
+            if (!stack.isEmpty()) {
+                TagKey<Item> itemCategoryTag = determineTagCategory(stack);
+                Inventory targetInventory = findTargetInventory(itemCategoryTag, inventories, inventory);
+                if (targetInventory != null && targetInventory != inventory) {
+                    if (moveItemStack(stack.copy(), targetInventory)) {
+                        inventory.setStack(slot, ItemStack.EMPTY);
+                    }
+                }
+            }
+        }
+    }
+
+    private Inventory findTargetInventory(TagKey<Item> categoryTag, List<Inventory> inventories, Inventory sourceInventory) {
+        BlockPos targetPos = categoryContainerMap.get(categoryTag);
+
+        // 如果没有现有的容器，尝试寻找一个空容器并分配给该物品类型
+        if (targetPos == null) {
+            for (Inventory inventory : inventories) {
+                BlockPos containerPos = ((BlockEntity) inventory).getPos();
+
+                // 如果容器未被分配给任何分类，分配给当前分类
+                if (!categoryContainerMap.containsValue(containerPos)) {
+                    categoryContainerMap.put(categoryTag, containerPos);
+                    return inventory;
+                }
+            }
+            return null; // 没有空容器可用
+        }
+
+        // 找到已分配的容器
         for (Inventory inventory : inventories) {
-            if (inventory == sourceInventory) continue;
-            String inventoryTag = getInventoryTag(inventory);
-            if (tag.equals(inventoryTag)) {
+            BlockPos containerPos = ((BlockEntity) inventory).getPos();
+            if (containerPos.equals(targetPos) && inventory != sourceInventory) {
                 return inventory;
             }
         }
         return null;
     }
 
-    /**
-     * 获取容器的标签，通过检查容器内是否有标签物品。
-     * @param inventory 容器
-     * @return 容器的标签，如果没有则返回空字符串
-     */
-    private String getInventoryTag(Inventory inventory) {
-        for (int i = 0; i < inventory.size(); i++) {
-            ItemStack stack = inventory.getStack(i);
-            if (stack.getItem() instanceof TagItem) {
-                return TagItem.getTag(stack);
-            }
-        }
-        return "";
+    // 检查两个 ItemStack 是否可以合并
+    private boolean canCombine(ItemStack stack1, ItemStack stack2) {
+        return ItemStack.areItemsEqual(stack1, stack2);
     }
 
-    /**
-     * 将物品堆移动到目标容器中。
-     * @param stack 要移动的物品堆
-     * @param targetInventory 目标容器
-     * @return 如果成功移动，返回 true；否则返回 false
-     */
     private boolean moveItemStack(ItemStack stack, Inventory targetInventory) {
         ItemStack remainingStack = stack.copy();
         for (int i = 0; i < targetInventory.size(); i++) {
@@ -147,7 +154,7 @@ public class SorterBlockEntity extends BlockEntity {
             if (targetStack.isEmpty()) {
                 targetInventory.setStack(i, remainingStack);
                 return true;
-            } else if (ItemStack.canCombine(remainingStack, targetStack)) {
+            } else if (canCombine(remainingStack, targetStack)) {
                 int transferAmount = Math.min(remainingStack.getCount(), targetStack.getMaxCount() - targetStack.getCount());
                 if (transferAmount > 0) {
                     targetStack.increment(transferAmount);
@@ -158,7 +165,6 @@ public class SorterBlockEntity extends BlockEntity {
                 }
             }
         }
-        // 如果无法完全移动，返回是否有部分移动
         return remainingStack.getCount() != stack.getCount();
     }
 }
